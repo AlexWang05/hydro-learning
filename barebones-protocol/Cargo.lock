@@ -1696,6 +1696,7 @@ dependencies = [
  "hydro_deploy",
  "hydro_lang",
  "hydro_std",
+ "serde",
  "stageleft",
  "stageleft_tool",
  "tokio",
