@@ -28,7 +28,7 @@ pub fn ping_ack<'a>(
     // client emits ping (base fact)
     let pings = client.source_iter(q!(vec![
         Ping {id: 100}
-    ]));
+    ])).inspect(q!(|_| println!("hello")));
 
     // send ping from client -> coord
     let pings_at_coord = pings.send_bincode(coord);
@@ -62,7 +62,9 @@ pub fn ping_ack<'a>(
     // coord -> client Done message (chain directly)
     done_msgs
         .send_bincode(client)
-        .inspect(q!(|d: &Done| println!("[CLIENT] Done({})", d.id)));
-        // .for_each(q!(|d: &Done| println!("[CLIENT] Done({})", d.id)));
+        // .inspect(q!(|d: &Done| println!("[CLIENT] Done({})", d.id)));
+        .assume_ordering(nondet!(#[doc = "test"]))
+        .assume_retries(nondet!(#[doc = "test"]))
+        .for_each(q!(|d: Done| println!("[CLIENT] Done({})", d.id)));
 
 }
