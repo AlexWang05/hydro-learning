@@ -8,6 +8,8 @@ edition = "2024"
 hydro_lang = { git = "https://github.com/hydro-project/hydro.git", branch = "main" }
 hydro_std = { git = "https://github.com/hydro-project/hydro.git", branch = "main" }
 stageleft = "0.10.0"
+serde = { version = "1.0", features = ["derive"] }
+
 
 [build-dependencies]
 stageleft_tool = "0.10.0"
