@@ -82,11 +82,27 @@ pub fn two_pc<'a>(
         .send_bincode(coord);  // each participant sends vote to coord
 
     // coord receives votes from all participants, aggregates, and decides
+    // let decisions_one = votes_at_coord
+    //     .values()  // iterate over multiset (may have multiple votes)
+    //     .inspect(q!(|v: &Vote| println!("[COORD] Received Vote(tx={}, yes={})", v.tx, v.yes)))
+    //     .map(q!(|v: Vote| Decision { tx: v.tx, commit: true }))  // Vote -> Decision
+    //     .unique();  // deduplicate: emit only ONE decision per tx (not one per vote)
+
+    // let num_participants = participants.source_cluster_members(cluster)
+
+    let decisions_one_tick = coord.tick();
+
     let decisions_one = votes_at_coord
-        .values()  // iterate over multiset (may have multiple votes)
-        .inspect(q!(|v: &Vote| println!("[COORD] Received Vote(tx={}, yes={})", v.tx, v.yes)))
-        .map(q!(|v: Vote| Decision { tx: v.tx, commit: true }))  // Vote -> Decision
-        .unique();  // deduplicate: emit only ONE decision per tx (not one per vote)
+        .entries()
+        .map(q!(|(pid, val)| (val.tx, pid)))
+        .into_keyed()
+        .fold_commutative(q!(|| 0), q!(|acc, _pid| *acc += 1))
+        .filter(q!(|count| *count == 2))
+        .snapshot(&decisions_one_tick, nondet!(#[doc = "demo"]))
+        .entries()
+        .all_ticks()
+        .map(q!(|(val, _count)| Decision { tx: val, commit: true }));
+
 
     // debug: print decisions at coord before broadcasting
     let decisions_with_log = decisions_one
