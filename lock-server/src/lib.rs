@@ -1,7 +1,7 @@
 #[cfg(stageleft_runtime)]
 hydro_lang::setup!();
 
-use hydro_lang::prelude::*;
+use hydro_lang::{live_collections::stream::NoOrder, prelude::*};
 
 /// Lock Server implementation
 /// 
@@ -23,7 +23,7 @@ use hydro_lang::prelude::*;
 pub struct LockServer;
 pub fn lock_server<'a>(
     input: Stream<(String, bool, usize), Process<'a, LockServer>>,
-) -> Stream<(String, bool, usize), Process<'a, LockServer>> {
+) -> Stream<(String, bool, usize), Process<'a, LockServer>, Unbounded, NoOrder> {
     let server = input.location();
     let server_tick = server.tick();
 
@@ -32,9 +32,11 @@ pub fn lock_server<'a>(
     let ticked_inputs = input
         // map form ("Alice", true, 0) => (0, ("Alice", true))
         .map(q!(|(name, acquire, lock_id)| (lock_id, (name, acquire))))
+        .batch(&server_tick, nondet!(#[doc = "go into tick so fold finishes"]));
+
+    let lock_state = ticked_inputs.clone()
+        .persist() // need this fold to persist
         .into_keyed() //now each lock_id has its own stream of reqs
-        .batch(&server_tick, nondet!(#[doc = "go into tick so fold finishes"]))
-        // .persist() // need this fold to persist
         .fold(q!(|| None), q!(|lock_holder, (name, acquire)| {
             if acquire && lock_holder.is_none() { // can acquire
                 *lock_holder = Some(name);
@@ -47,20 +49,31 @@ pub fn lock_server<'a>(
             }
         }));
 
-    // let lock_state = ticked_inputs.persist().clone();
-    let lock_state = ticked_inputs.clone();
-    
     // ticked_inputs => new lock state after fold processes current tick's requests
     // lock_state => clone of ticked_inputs, previous tick's lock state
-    ticked_inputs
-        .cross_singleton(lock_state) // pairs each element from ticked_inputs with prev tick's lock state
-        // lock_holder is lock state from prev tick
-        .map(q!(|((lock_id, (name, acquire)), lock_holder)| {
+
+    // pairs each element from ticked_inputs with prev tick's lock state
+    // lock_holder is lock state from prev tick
+    lock_state.get_many_if_present(ticked_inputs.into_keyed())
+    .all_ticks()
+        .entries()
+        .map(q!(|(lock_id, (lock_holder, (name, acquire)))| {
             let success = if acquire {
-                lock_holder.is_none() // if lock was free in prev state & we try to acq => success
-            } else {
                 lock_holder.as_ref() == Some(&name) // if you held it in prev state & try to release => success
+            } else {
+                true
+                // lock_holder.is_none() // if lock was free in prev state & we try to acq => success
             };
             (name, success, lock_id)
         }))
+        
+        
+        // .map(q!(|((lock_id, (name, acquire)), lock_holder)| {
+        //     let success = if acquire {
+        //         lock_holder.is_none() // if lock was free in prev state & we try to acq => success
+        //     } else {
+        //         lock_holder.as_ref() == Some(&name) // if you held it in prev state & try to release => success
+        //     };
+        //     (name, success, lock_id)
+        // }))
 }
